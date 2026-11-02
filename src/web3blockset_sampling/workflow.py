@@ -12,9 +12,10 @@ from uuid import uuid4
 
 from . import __version__
 from .config import Config, load_config
+from .contracts import export_contract
 from .errors import ValidationError
-from .export import export_samples
-from .ingestion import digest_json, read_json, sha256_file, write_json
+from .export import export_samples, pipeline_export_audit
+from .ingestion import digest_json, read_json, rows, sha256_file, write_json
 from .preparation import prepare, verify_inputs
 from .reports import write_reports
 from .sampling import ALGORITHM, draw
@@ -54,11 +55,12 @@ def run(config: Config, definitive: bool = False) -> tuple[Path, dict]:
         write_json(directory / "sampling_manifest.json", diagnostic)
         return directory, diagnostic
     selected = None
+    export_audit = None
     if definitive and not prepared.blockers:
         selected = draw(prepared.eligible, allocation, config.seed)
         try:
             checks = check_design(prepared, allocation, selected)
-            export_samples(directory, prepared, selected, allocation, run_id)
+            export_audit = export_samples(directory, prepared, selected, allocation, run_id)
             checks.update(check_exports(directory, prepared, allocation, selected, run_id))
             verify_inputs(prepared)
         except (ValidationError, OSError) as exc:
@@ -68,7 +70,8 @@ def run(config: Config, definitive: bool = False) -> tuple[Path, dict]:
     if not checks["implementation_unchanged"]:
         prepared.blockers.append("Implementação modificada durante a execução; repita com o código estável")
         selected = None
-    report = write_reports(directory, prepared, allocation, selected, run_id, checks)
+    report = write_reports(directory, prepared, allocation, selected, run_id, checks,
+                           export_audit if selected is not None else None)
     manifest = {"run_id": run_id, "created_at": datetime.now(timezone.utc).isoformat(),
                 "status": "complete" if report["definitive"] else "blocked" if prepared.blockers else "prepared",
                 "program_version": __version__, "implementation_sha256": code_hash,
@@ -76,6 +79,7 @@ def run(config: Config, definitive: bool = False) -> tuple[Path, dict]:
                 "corpus_version": config.corpus_version, "inputs": prepared.inputs,
                 "config_sha256": sha256_file(directory / "config_snapshot.json"),
                 "mapping_version": prepared.mapping.version, "mapping_sha256": prepared.mapping.sha256,
+                "export_contract": export_contract(),
                 "seed": config.seed, "algorithm": ALGORITHM, "ordering": "lexicographic stable unit IDs",
                 "rounding": "ceil; capped at population; empty strata have n=0",
                 "duplicate_policy": config.duplicate_policy, "identity_fields": config.identity_fields,
@@ -86,6 +90,8 @@ def run(config: Config, definitive: bool = False) -> tuple[Path, dict]:
                 "selected_sample": len(selected) if selected is not None else 0,
                 "allocation": {s: a.to_dict() for s, a in allocation.items()}, "blockers": prepared.blockers,
                 "artifacts": {p.name: sha256_file(p) for p in sorted(directory.iterdir()) if p.is_file()}}
+    if selected is not None:
+        manifest["export_audit"] = export_audit
     write_json(directory / "sampling_manifest.json", manifest)
     return directory, manifest
 
@@ -96,6 +102,7 @@ def validate_run(directory: Path) -> dict:
                 "config_sha256", "seed", "corpus_version", "duplicate_policy", "identity_fields", "pilot_fields",
                 "statistics", "inputs", "mapping_version", "mapping_sha256", "exclusions", "allocation",
                 "eligible_population", "selected_sample", "calculated_sample", "run_id"}
+    required.update({"export_contract", "export_audit"})
     if manifest.get("status") != "complete":
         raise ValidationError("Somente uma execução definitiva completa pode ser validada")
     if not required <= set(manifest):
@@ -104,11 +111,14 @@ def validate_run(directory: Path) -> dict:
         raise ValidationError("Versão do programa/algoritmo difere da execução original")
     if manifest["implementation_sha256"] != implementation_hash():
         raise ValidationError("Código instalado difere da implementação registrada")
+    if manifest["export_contract"] != export_contract():
+        raise ValidationError("Contrato de exportação do manifesto divergente")
     if manifest["python"].split(".")[:2] != platform.python_version().split(".")[:2]:
         raise ValidationError("Reprodução requer a mesma versão major.minor do Python")
     expected_files = {"config_snapshot.json", "strata_summary.csv", "repository_distribution.csv",
                       "duplicate_groups.csv", "exclusions_audit.csv",
-                      "validation_report.json", "sampling_report.md", "final_sample_full.csv", "final_sample_pipeline.csv"}
+                      "validation_report.json", "sampling_report.md", "final_sample_full.csv", "final_sample_pipeline.csv",
+                      "final_sample_metadata.csv"}
     if set(manifest["artifacts"]) != expected_files:
         raise ValidationError("Lista de artefatos do manifesto incompleta ou inesperada")
     for name, expected in manifest["artifacts"].items():
@@ -143,12 +153,15 @@ def validate_run(directory: Path) -> dict:
     selected = draw(prepared.eligible, allocation, config.seed)
     checks = check_design(prepared, allocation, selected)
     checks.update(check_exports(directory, prepared, allocation, selected, manifest["run_id"]))
+    export_audit = pipeline_export_audit(rows(directory / "final_sample_full.csv"), prepared)
+    if manifest["export_audit"] != export_audit:
+        raise ValidationError("Auditoria de normalização da exportação inconsistente")
     checks["implementation_unchanged"] = implementation_hash() == manifest["implementation_sha256"]
     if not checks["implementation_unchanged"]:
         raise ValidationError("Implementação modificada durante a validação")
     with tempfile.TemporaryDirectory(prefix="web3blockset-validate-") as temp:
         temp_dir = Path(temp)
-        write_reports(temp_dir, prepared, allocation, selected, manifest["run_id"], checks)
+        write_reports(temp_dir, prepared, allocation, selected, manifest["run_id"], checks, export_audit)
         for name in ("strata_summary.csv", "repository_distribution.csv", "duplicate_groups.csv", "exclusions_audit.csv",
                      "validation_report.json", "sampling_report.md"):
             if sha256_file(temp_dir / name) != sha256_file(directory / name):

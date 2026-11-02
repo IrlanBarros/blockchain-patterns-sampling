@@ -6,8 +6,9 @@ import math
 from collections import Counter
 from pathlib import Path
 
+from .contracts import METADATA_COLUMNS, PIPELINE_COLUMNS
 from .errors import ValidationError
-from .export import METADATA_COLUMNS, metadata, pipeline_row
+from .export import metadata, metadata_row, pipeline_row
 from .ingestion import digest_json, header, rows
 from .preparation import Prepared, verify_inputs
 from .sampling import draw
@@ -79,39 +80,47 @@ def check_design(prepared: Prepared, allocation: dict[str, Allocation], selected
     return checks
 
 
+def _read_export(path: Path, fields: list[str]) -> dict[str, dict]:
+    if header(path) != fields:
+        raise ValidationError(f"Cabeçalho da exportação divergente: {path.name}")
+    indexed = {}
+    for row in rows(path):
+        uid = row["sampling_unit_id"]
+        if not uid or not uid.strip():
+            raise ValidationError(f"sampling_unit_id vazio em {path.name}")
+        if uid in indexed:
+            raise ValidationError(f"sampling_unit_id duplicado em {path.name}: {uid}")
+        indexed[uid] = row
+    return indexed
+
+
 def check_exports(directory: Path, prepared: Prepared, allocation: dict[str, Allocation],
                   selected: set[str], run_id: str) -> dict:
     original_fields = header(prepared.config.issues, prepared.config.encoding, prepared.config.delimiter)
     fields = original_fields + METADATA_COLUMNS
-    full_path = directory / "final_sample_full.csv"
-    pipe_path = directory / "final_sample_pipeline.csv"
-    if header(full_path) != fields:
-        raise ValidationError("Cabeçalho da amostra completa diverge do esquema original + metadados")
-    pipe_fields = fields + [k for k in prepared.config.pipeline_columns if k not in fields]
-    if header(pipe_path) != pipe_fields:
-        raise ValidationError("Cabeçalho da amostra do pipeline divergente")
+    full_rows = _read_export(directory / "final_sample_full.csv", fields)
+    pipeline_rows = _read_export(directory / "final_sample_pipeline.csv", PIPELINE_COLUMNS)
+    metadata_rows = _read_export(directory / "final_sample_metadata.csv", METADATA_COLUMNS)
+    if not (len(full_rows) == len(pipeline_rows) == len(metadata_rows) == len(selected)):
+        raise ValidationError("Quantidades de registros dos três arquivos divergem da seleção")
+    if any(set(records) != selected for records in (full_rows, pipeline_rows, metadata_rows)):
+        raise ValidationError("Chaves dos três arquivos divergem dos registros sorteados")
     units = {u.unit_id: u for u in prepared.eligible if u.unit_id in selected}
-    full_rows = {}
-    for row in rows(full_path):
-        uid = row["sampling_unit_id"]
-        if uid not in units or uid in full_rows:
-            raise ValidationError("Identificador não sorteado ou repetido na exportação")
+    if set(units) != selected:
+        raise ValidationError("Seleção contém unidades não elegíveis")
+    for uid, row in full_rows.items():
         unit = units[uid]
         if digest_json({k: row[k] for k in original_fields}) != unit.row_hash:
             raise ValidationError(f"Conteúdo original alterado na exportação: {uid}")
         expected = metadata(unit, allocation[unit.stratum], run_id)
         if any(row[k] != v for k, v in expected.items()):
             raise ValidationError(f"Metadados ou pesos inconsistentes: {uid}")
-        full_rows[uid] = row
-    if set(full_rows) != selected:
-        raise ValidationError("Exportação não corresponde ao conjunto sorteado")
-    pipeline_ids = set()
-    for row in rows(pipe_path):
-        uid = row["sampling_unit_id"]
-        if uid not in full_rows or uid in pipeline_ids or row != pipeline_row(full_rows[uid], prepared):
+        if pipeline_rows[uid] != pipeline_row(row, prepared):
             raise ValidationError("Conteúdo da exportação para o pipeline divergente")
-        pipeline_ids.add(uid)
-    if pipeline_ids != selected:
-        raise ValidationError("Registros ausentes no arquivo do pipeline")
+        if metadata_rows[uid] != metadata_row(row):
+            raise ValidationError("Metadados separados divergem do arquivo completo")
     return {"export_ids_match_draw": True, "original_fields_and_text_preserved": True,
-            "export_weights_consistent": True, "pipeline_aliases_verified": True}
+            "export_weights_consistent": True, "pipeline_aliases_verified": True,
+            "three_exports_same_rows_and_ids": True, "unique_nonempty_sampling_unit_ids": True,
+            "pipeline_exact_13_columns": True, "commits_count_normalized": True,
+            "metadata_exact_14_columns": True, "metadata_matches_full": True}

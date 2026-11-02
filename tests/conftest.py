@@ -42,6 +42,10 @@ def corpus(tmp_path):
             for number in range(1, 21):
                 records.append({"owner": "ORG", "repository": repo, "issue_number": str(number),
                                 "issue_id": str(len(records) + 1), "type": "Issue" if number % 2 else "Pull Request",
+                                "created_at": "2024-01-02T03:04:05+00:00",
+                                "closed_at": "2024-01-03T03:04:05+00:00" if number % 5 else "",
+                                "state": "closed" if number % 5 else "open", "comments_count": str(number % 4),
+                                "commits_count": str(number) if number % 2 == 0 else "",
                                 "data_source": source, "repository_category": categories[stratum],
                                 "issue_title": f"  Título {number} 🧪  ",
                                 "issue_body": "linha 1\r\nlinha 2, \"aspas\"\n汉字" if number % 3 else "",
@@ -65,4 +69,3 @@ def corpus(tmp_path):
                              "repositories": {"repository": "repository", "owner": "owner", "source": "source", "category": "category"},
                              "pilot": {"repository": "repository_full_name", "number": "issue_number", "artifact_type": "type"}})
     return config, records, repositories, pilot_records
-

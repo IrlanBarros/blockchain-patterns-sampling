@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .contracts import DEFAULT_PIPELINE_SOURCES, PIPELINE_COLUMNS
 from .errors import ValidationError
 from .ingestion import read_json
 
@@ -42,11 +43,8 @@ class Config:
     identity_fields: list[str] = field(default_factory=lambda: ["repository", "number", "artifact_type"])
     pilot_fields: list[str] = field(default_factory=lambda: ["repository", "number", "artifact_type"])
     schemas: dict[str, dict[str, str]] = field(default_factory=dict)
-    pipeline_columns: dict[str, str] = field(default_factory=lambda: {
-        "repository": "@repository", "issue_number": "@number", "type": "@artifact_type",
-        "issue_title": "issue_title", "issue_body": "issue_body",
-        "concatenated_comments": "concatenated_comments"})
-    pipeline_key_fields: list[str] = field(default_factory=lambda: ["repository", "issue_number"])
+    pipeline_columns: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PIPELINE_SOURCES))
+    pipeline_key_fields: list[str] = field(default_factory=lambda: ["sampling_unit_id"])
     pipeline_decision: str = ""
     source_values: dict[str, str] = field(default_factory=lambda: {
         "provider": "provider", "community": "community"})
@@ -103,12 +101,12 @@ class Config:
             raise ValidationError("expected_counts exige total = provider + community, inteiros não negativos")
         if self.smoke and not self.smoke_decision.strip():
             raise ValidationError("A exclusão opcional do smoke test exige smoke_decision")
-        if not self.pipeline_key_fields or len(set(self.pipeline_key_fields)) != len(self.pipeline_key_fields):
-            raise ValidationError("pipeline_key_fields vazio ou repetido")
-        if self.pipeline_key_fields != ["repository", "issue_number"] and not self.pipeline_decision.strip():
-            raise ValidationError("Contrato alternativo do pipeline exige pipeline_decision")
-        if any(k.startswith("sampling_") for k in self.pipeline_columns):
-            raise ValidationError("pipeline_columns não pode sobrescrever metadados sampling_*")
+        if self.pipeline_key_fields != ["sampling_unit_id"]:
+            raise ValidationError("pipeline_key_fields deve ser [sampling_unit_id]; a chave da ocorrência é exclusiva")
+        expected_pipeline = set(PIPELINE_COLUMNS) - {"sampling_unit_id"}
+        if set(self.pipeline_columns) != expected_pipeline:
+            raise ValidationError("pipeline_columns deve mapear exatamente os 12 campos autorizados; "
+                                  "sampling_unit_id é fornecido automaticamente")
         if not isinstance(self.seed, int) or isinstance(self.seed, bool):
             raise ValidationError("seed deve ser um inteiro")
         if not isinstance(self.expected_pilot, int) or isinstance(self.expected_pilot, bool) or self.expected_pilot < 0:

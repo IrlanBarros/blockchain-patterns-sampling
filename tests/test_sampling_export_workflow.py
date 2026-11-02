@@ -85,7 +85,8 @@ def test_end_to_end(corpus):
     result = validate_run(directory)
     assert result["valid"] and all(result["checks"].values())
     full, pipeline = read(directory / "final_sample_full.csv"), read(directory / "final_sample_pipeline.csv")
-    assert len(full) == len(pipeline) == manifest["selected_sample"]
+    metadata = read(directory / "final_sample_metadata.csv")
+    assert len(full) == len(pipeline) == len(metadata) == manifest["selected_sample"]
     source = {row["issue_id"]: row for row in records}
     for exported, alias in zip(full, pipeline):
         original = source[exported["issue_id"]]
@@ -93,6 +94,8 @@ def test_end_to_end(corpus):
         assert alias["repository"] == exported["sampling_repository"]
         assert alias["issue_body"] == original["issue_body"]
         assert alias["concatenated_comments"] == original["concatenated_comments"]
+        assert alias["artifact_type"] == original["type"]
+        assert alias["issue_number"] == original["issue_number"]
         assert exported["unknown_metadata"] == "00001"
     summary = read(directory / "strata_summary.csv")
     assert len(summary) == 9
@@ -213,15 +216,11 @@ def test_pipeline_identity_contract_is_explicit(corpus):
     records[3]["issue_number"] = records[2]["issue_number"]
     save(config.issues, records)
     directory, manifest = run(config, True)
-    assert manifest["status"] == "blocked"
-    assert any("incompatível" in b for b in manifest["blockers"])
-    config.pipeline_key_fields = ["sampling_unit_id"]
-    with pytest.raises(ValidationError, match="pipeline_decision"):
-        config.validate()
-    config.pipeline_decision = "Synthetic downstream contract accepts occurrence identifiers"
-    directory, manifest = run(config, True)
     assert manifest["status"] == "complete"
     assert validate_run(directory)["valid"]
+    config.pipeline_key_fields = ["repository", "issue_number"]
+    with pytest.raises(ValidationError, match="sampling_unit_id"):
+        config.validate()
 
 
 def test_metadata_column_collision_not_overwritten(corpus):

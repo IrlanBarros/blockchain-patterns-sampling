@@ -5,15 +5,12 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+from .contracts import METADATA_COLUMNS, PIPELINE_COLUMNS
 from .errors import ValidationError
 from .ingestion import digest_json, header, rows, write_csv
+from .normalization import audit_commits_count, normalize_commits_count
 from .preparation import Prepared, Unit
 from .statistics import Allocation
-
-META = ["unit_id", "logical_id", "repository", "source", "category", "original_category", "stratum", "population",
-        "sample_size", "population_weight", "design_weight", "provider_weight", "inclusion_probability", "run_id"]
-METADATA_COLUMNS = ["sampling_" + name for name in META]
-
 
 def metadata(unit: Unit, allocation: Allocation, run_id: str) -> dict:
     values = [unit.unit_id, unit.logical_id, unit.repository, unit.source, unit.category, unit.original_category, unit.stratum,
@@ -22,12 +19,14 @@ def metadata(unit: Unit, allocation: Allocation, run_id: str) -> dict:
     return dict(zip(METADATA_COLUMNS, ("" if v is None else str(v) for v in values)))
 
 
-def pipeline_row(full: dict, prepared: Prepared) -> dict:
-    result = dict(full)
+def project_pipeline_row(full: dict, prepared: Prepared) -> dict:
+    """Project raw aliases, also used by selection before export normalization."""
+    result = {"sampling_unit_id": full["sampling_unit_id"]}
     special = {"@repository": full["sampling_repository"],
-               "@number": str(int(full[prepared.config.schemas["issues"]["number"]].strip().split(".")[0])),
+               "@number": full[prepared.config.schemas["issues"]["number"]],
                "@artifact_type": full[prepared.config.schemas["issues"]["artifact_type"]]}
-    for destination, source in prepared.config.pipeline_columns.items():
+    for destination in PIPELINE_COLUMNS[1:]:
+        source = prepared.config.pipeline_columns[destination]
         if source.startswith("@"):
             if source not in special:
                 raise ValidationError(f"Alias de pipeline desconhecido: {source}")
@@ -39,40 +38,64 @@ def pipeline_row(full: dict, prepared: Prepared) -> dict:
     return result
 
 
-def selected_rows(prepared: Prepared, selected: set[str], allocation: dict[str, Allocation], run_id: str) -> list[dict]:
-    fields = header(prepared.config.issues, prepared.config.encoding, prepared.config.delimiter)
-    if set(fields) & set(METADATA_COLUMNS):
-        raise ValidationError("Colunas originais colidem com o namespace reservado sampling_*")
+def pipeline_row(full: dict, prepared: Prepared) -> dict:
+    """Apply the classifier contract without mutating any original cell."""
+    result = project_pipeline_row(full, prepared)
+    result["commits_count"] = normalize_commits_count(result["commits_count"])
+    return result
+
+
+def pipeline_export_audit(records, prepared: Prepared) -> dict:
+    """Audit configured aliases against original cells, independently of CSV output."""
+    return {"commits_count": audit_commits_count(
+        (row["sampling_unit_id"], project_pipeline_row(row, prepared)["commits_count"]) for row in records)}
+
+
+def metadata_row(full: dict) -> dict:
+    """Copy already recorded weights and provenance; never recompute them."""
+    return {column: full[column] for column in METADATA_COLUMNS}
+
+
+def occurrence_rows(prepared: Prepared, selected: set[str]):
+    """Stream raw cells with the existing hash/occurrence identity, without new IDs."""
     lookup = {(u.row_hash, u.row_occurrence): u for u in prepared.units if u.unit_id in selected}
     occurrences: Counter = Counter()
-    recovered = {}
     for row in rows(prepared.config.issues, prepared.config.encoding, prepared.config.delimiter):
         hashed = digest_json(row)
         occurrences[hashed] += 1
         unit = lookup.get((hashed, occurrences[hashed]))
         if unit:
-            recovered[unit.unit_id] = {**row, **metadata(unit, allocation[unit.stratum], run_id)}
+            yield unit, row
+
+
+def recover_rows(prepared: Prepared, selected: set[str]) -> dict[str, dict]:
+    """Recover original occurrences for both definitive and technical exports."""
+    fields = header(prepared.config.issues, prepared.config.encoding, prepared.config.delimiter)
+    if set(fields) & set(METADATA_COLUMNS):
+        raise ValidationError("Colunas originais colidem com o namespace reservado sampling_*")
+    recovered = {unit.unit_id: row for unit, row in occurrence_rows(prepared, selected)}
     if set(recovered) != selected:
         raise ValidationError("Segunda passagem não recuperou exatamente os registros sorteados")
-    return [recovered[uid] for uid in sorted(recovered)]
+    return recovered
+
+
+def selected_rows(prepared: Prepared, selected: set[str], allocation: dict[str, Allocation], run_id: str) -> list[dict]:
+    recovered = recover_rows(prepared, selected)
+    units = {u.unit_id: u for u in prepared.units if u.unit_id in selected}
+    return [{**recovered[uid], **metadata(units[uid], allocation[units[uid].stratum], run_id)}
+            for uid in sorted(recovered)]
 
 
 def export_samples(directory: Path, prepared: Prepared, selected: set[str],
-                   allocation: dict[str, Allocation], run_id: str) -> None:
+                   allocation: dict[str, Allocation], run_id: str) -> dict:
     records = selected_rows(prepared, selected, allocation, run_id)
     original_fields = header(prepared.config.issues, prepared.config.encoding, prepared.config.delimiter)
     full_fields = original_fields + METADATA_COLUMNS
-    pipeline_fields = full_fields + [k for k in prepared.config.pipeline_columns if k not in full_fields]
     pipeline = [pipeline_row(row, prepared) for row in records]
-    required = {"repository", "issue_number", "issue_title", "issue_body", "concatenated_comments"}
-    if not required <= set(pipeline_fields):
-        raise ValidationError(f"Exportação sem campos exigidos pelo pipeline: {sorted(required - set(pipeline_fields))}")
-    # The inspected classifier keys records by (repository, issue_number).
-    if not set(prepared.config.pipeline_key_fields) <= set(pipeline_fields):
-        raise ValidationError("pipeline_key_fields contém campos ausentes na exportação")
-    keys = [tuple(r[k].casefold().strip() for k in prepared.config.pipeline_key_fields) for r in pipeline]
-    if len(keys) != len(set(keys)):
-        raise ValidationError("A amostra contém (repository, issue_number) repetido, incompatível com o pipeline inspecionado. "
-                              "É necessária uma adaptação explícita do contrato do classificador; não refaça o sorteio para esconder a colisão")
+    keys = [row["sampling_unit_id"] for row in records]
+    if any(not key or not key.strip() for key in keys) or len(keys) != len(set(keys)):
+        raise ValidationError("sampling_unit_id vazio ou duplicado na exportação")
     write_csv(directory / "final_sample_full.csv", full_fields, records)
-    write_csv(directory / "final_sample_pipeline.csv", pipeline_fields, pipeline)
+    write_csv(directory / "final_sample_pipeline.csv", PIPELINE_COLUMNS, pipeline)
+    write_csv(directory / "final_sample_metadata.csv", METADATA_COLUMNS, (metadata_row(row) for row in records))
+    return pipeline_export_audit(records, prepared)

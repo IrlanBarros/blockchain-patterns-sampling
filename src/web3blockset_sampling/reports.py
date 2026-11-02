@@ -26,7 +26,8 @@ def distributions(units: list) -> dict:
 
 
 def write_reports(directory: Path, prepared: Prepared, allocation: dict[str, Allocation],
-                  selected: set[str] | None, run_id: str, checks: dict | None = None) -> dict:
+                  selected: set[str] | None, run_id: str, checks: dict | None = None,
+                  export_audit: dict | None = None) -> dict:
     eligible = prepared.eligible
     chosen = [u for u in eligible if selected is not None and u.unit_id in selected]
     population = distributions(eligible)
@@ -76,6 +77,8 @@ def write_reports(directory: Path, prepared: Prepared, allocation: dict[str, All
     validation = {"run_id": run_id, "definitive": selected is not None and not prepared.blockers,
                   "blockers": prepared.blockers, "audit": prepared.audit,
                   "population": population, "sample": sample, "checks": checks or {}}
+    if export_audit is not None:
+        validation["export_audit"] = export_audit
     write_json(directory / "validation_report.json", validation)
     total_sample = sum(a.sample for a in allocation.values())
     pilot = prepared.audit.get("pilot_exclusion", {})
@@ -119,11 +122,38 @@ def write_reports(directory: Path, prepared: Prepared, allocation: dict[str, All
         info = population["strata"][stratum]
         top = "; ".join(f"{r['repository']}: {r['share']:.2%}" for r in info["top_repositories"][:5])
         lines.append(f"- {stratum}: {info['repositories']} repositórios; maiores participações: {top or 'nenhum'}.")
-    lines += ["", "## Limitações e reprodução", "", "A margem de ±5% do método de referência por estrato refere-se à proporção que discute pelo menos um pattern. A margem configurada nesta execução consta dos parâmetros acima. Não mede erro da LLM, precisão de cada pattern, tempos de resolução nem poder para pequenas diferenças.",
+    lines += ["", "## Arquivos da amostra", "",
+              "Em execução definitiva, final_sample_full.csv conserva todas as colunas originais e os 14 metadados; "
+              "final_sample_pipeline.csv contém somente as 13 colunas autorizadas ao classificador; "
+              "final_sample_metadata.csv contém os 14 campos de proveniência e pesos. "
+              "Os três possuem uma linha por ocorrência e se relacionam exclusivamente por sampling_unit_id. "
+              "Metadados estatísticos não precisam ser enviados ao classificador. A preparação não gera esses CSVs.",
+              "", "## Limitações e reprodução", "", "A margem de ±5% do método de referência por estrato refere-se à proporção que discute pelo menos um pattern. A margem configurada nesta execução consta dos parâmetros acima. Não mede erro da LLM, precisão de cada pattern, tempos de resolução nem poder para pequenas diferenças.",
               "A margem global aproximada de ±2,1% não é utilizada como constante nem é calculada por esta aplicação. Avaliação da LLM e Rogan–Gladen ficam no projeto de análise.",
               "O universo é definido pelos arquivos originais e seus hashes. O período observado nas datas deve ser conferido com o documento metodológico; não se aplica um filtro temporal implícito. Contagens iguais não comprovam a proveniência.",
               "Consulte sampling_manifest.json e config_snapshot.json para caminhos, hashes, ambiente, semente, parâmetros e decisões. Use validate --run-dir para repetir as verificações.",
               "", "## Bloqueios", ""]
     lines += [f"- {b}" for b in prepared.blockers] or ["Nenhum."]
+    lines += render_export_audit(export_audit)
     (directory / "sampling_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return validation
+
+
+def render_export_audit(export_audit: dict | None) -> list[str]:
+    if export_audit is None:
+        return []
+    counts = export_audit["commits_count"]
+    lines = ["", "## Normalização de commits_count na exportação", "",
+             "Somente o pipeline normaliza commits_count: inteiro não negativo quando válido; célula vazia quando "
+             "ausente ou inválido. Zero é válido e permanece 0; 5.0 passa a 5. Frações não são arredondadas. "
+             "O completo mantém a representação original. comments_count e demais campos não são transformados.", "",
+             f"Total: {counts['total']}; válidos: {counts['valid']}; inteiros preservados: {counts['integers_preserved']}; "
+             f"representações decimais convertidas: {counts['decimal_representations_converted']}; "
+             f"zeros preservados: {counts['zeros_preserved']}; ausentes: {counts['missing']}; inválidos: {counts['invalid']}.",
+             "Zeros são um subconjunto dos válidos; inteiros + decimais = válidos; válidos + ausentes + inválidos = total.", ""]
+    if counts["invalid"]:
+        lines.append("Ocorrências inválidas convertidas para vazio (valores originais em export_audit e no completo):")
+        lines += [f"- `{item['sampling_unit_id']}`: {item['reason']}." for item in counts["invalid_records"]]
+    else:
+        lines.append("Nenhuma ocorrência inválida de commits_count nesta exportação.")
+    return lines

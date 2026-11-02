@@ -60,9 +60,17 @@
   "pipeline_columns": {
     "repository": "@repository",
     "issue_number": "@number",
-    "type": "@artifact_type",
+    "artifact_type": "@artifact_type",
+    "repository_category": "repository_category",
+    "created_at": "created_at",
+    "closed_at": "closed_at",
+    "state": "state",
+    "comments_count": "comments_count",
+    "commits_count": "commits_count",
     "issue_title": "issue_title",
     "issue_body": "issue_body",
     "concatenated_comments": "concatenated_comments"
-  }
+  },
+  "pipeline_key_fields": ["sampling_unit_id"],
+  "pipeline_decision": "Contrato solicitado: 13 colunas de classificação e identificação exclusiva por sampling_unit_id."
 }
