@@ -97,6 +97,9 @@ def run(config: Config, definitive: bool = False) -> tuple[Path, dict]:
 
 
 def validate_run(directory: Path) -> dict:
+    if (directory / "smoke_15_manifest.json").is_file():
+        from .smoke import validate_smoke
+        return validate_smoke(directory)
     manifest = read_json(directory / "sampling_manifest.json")
     required = {"status", "program_version", "algorithm", "implementation_sha256", "python", "artifacts",
                 "config_sha256", "seed", "corpus_version", "duplicate_policy", "identity_fields", "pilot_fields",

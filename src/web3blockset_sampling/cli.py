@@ -35,6 +35,14 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--dry-run", action="store_true")
     validate = commands.add_parser("validate")
     validate.add_argument("--run-dir", type=Path, required=True)
+    smoke = commands.add_parser("smoke", help="Extrair 15 ocorrências para integração técnica, sem sorteio definitivo")
+    smoke.add_argument("--config", type=Path, default=Path("configs/sampling.json"))
+    smoke.add_argument("--size", type=int, default=15)
+    smoke.add_argument("--seed", type=int, default=20261102)
+    smoke.add_argument("--run-id")
+    smoke.add_argument("--output", type=Path)
+    smoke.add_argument("--authorize-technical-smoke", action="store_true",
+                       help="Autorizar somente extração técnica com pendências metodológicas registradas")
     approval = commands.add_parser("approve-mapping", help="Registrar uma aprovação humana vinculada ao hash do agrupamento")
     approval.add_argument("--mapping", type=Path, required=True)
     approval.add_argument("--output", type=Path, required=True)
@@ -56,6 +64,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate":
             print(json.dumps(validate_run(args.run_dir), ensure_ascii=False, indent=2))
             return 0
+        if args.command == "smoke":
+            from .smoke import run_smoke
+            overrides = {"output": args.output.resolve()} if args.output else None
+            config = load_config(args.config, overrides)
+            directory, manifest = run_smoke(config, seed=args.seed, size=args.size, run_id=args.run_id,
+                                             authorized=args.authorize_technical_smoke)
+            print(json.dumps({"run_directory": str(directory.resolve()), "status": manifest["status"],
+                              "run_type": manifest["run_type"], "selected_size": manifest["selected_size"],
+                              "blockers": manifest["blockers"]}, ensure_ascii=False, indent=2))
+            return 0 if manifest["status"] == "complete" else 2
         if args.command == "inspect" and args.file:
             print(json.dumps([inspect_csv(p) for p in args.file], ensure_ascii=False, indent=2))
             return 0
@@ -76,4 +94,3 @@ def main(argv: list[str] | None = None) -> int:
     except (ValidationError, OSError, UnicodeError, json.JSONDecodeError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
-
