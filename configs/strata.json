@@ -1,0 +1,55 @@
+{
+  "version": "methodology-2026-10-29-v1",
+  "strata": {
+    "Blockchain Core": [
+      "Blockchain Core / Protocol",
+      "Blockchain Core / Privacy Protocol"
+    ],
+    "SDKs e bibliotecas": [
+      "SDK / Library",
+      "Utility Library",
+      "Cryptography Library",
+      "ZK Library",
+      "UI / Frontend / Library"
+    ],
+    "Wallets e extensões": [
+      "Wallet Dapp / Library / Browser",
+      "Browser Extension"
+    ],
+    "Ferramentas de desenvolvimento": [
+      "Development Platform / Framework",
+      "Testing Tool",
+      "IDE / Development Environment",
+      "Programming Language / Compiler",
+      "Security Tool",
+      "Analytics / Monitoring Tool",
+      "Low-level Analysis Tool / Decoder",
+      "Smart Contract Deployment Tool",
+      "AI Tool"
+    ],
+    "Documentação, educação e especificações": [
+      "Documentation",
+      "Education Resource / Boilerplate",
+      "Specification",
+      "Research",
+      "Metadata Repository"
+    ],
+    "Infraestrutura e dados": [
+      "Storage Protocol",
+      "Indexing Protocol / Tool",
+      "Infrastructure"
+    ],
+    "Contratos e aplicações on-chain": [
+      "Smart Contract Library",
+      "DeFi Protocol",
+      "NFT Protocol / Tool",
+      "Bridge Protocol",
+      "Staking Tool",
+      "Identity / Naming Protocol"
+    ],
+    "Outros": [
+      "Other"
+    ],
+    "Community": []
+  }
+}

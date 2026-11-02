@@ -1,0 +1,68 @@
+{
+  "issues": "../data/raw/issues_prs.csv",
+  "repositories": "../data/raw/repositories.csv",
+  "pilot": "../data/raw/pilot-200.csv",
+  "methodology": "../docs/Calculo_Amostragem_Final.docx",
+  "mapping": "strata.json",
+  "output": "../outputs",
+  "approval": null,
+  "seed": 42,
+  "corpus_version": "original-msr2026",
+  "duplicate_policy": "error",
+  "expected_counts": {
+    "total": 391596,
+    "provider": 383387,
+    "community": 8209
+  },
+  "expected_pilot": 200,
+  "schemas": {
+    "issues": {
+      "repository": "repository",
+      "owner": "owner",
+      "number": "issue_number",
+      "artifact_type": "type",
+      "source": "data_source",
+      "category": "repository_category",
+      "record_id": "issue_id"
+    },
+    "repositories": {
+      "repository": "html_url",
+      "owner": "organization",
+      "category": "repository_category"
+    },
+    "pilot": {
+      "repository": "repository_full_name",
+      "number": "issue_number",
+      "artifact_type": "type",
+      "record_id": "issue_id"
+    }
+  },
+  "repository_scope": "provider",
+  "repository_formats": {
+    "repositories": "github_url"
+  },
+  "join_fields": [
+    "repository",
+    "source"
+  ],
+  "identity_fields": [
+    "repository",
+    "number",
+    "artifact_type",
+    "record_id"
+  ],
+  "pilot_fields": [
+    "repository",
+    "number",
+    "artifact_type",
+    "record_id"
+  ],
+  "pipeline_columns": {
+    "repository": "@repository",
+    "issue_number": "@number",
+    "type": "@artifact_type",
+    "issue_title": "issue_title",
+    "issue_body": "issue_body",
+    "concatenated_comments": "concatenated_comments"
+  }
+}
