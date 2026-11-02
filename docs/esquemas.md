@@ -62,14 +62,67 @@ Acrescentam-se as colunas reservadas:
 
 Colisões de cabeçalhos com essas colunas são rejeitadas. Todas as entradas têm SHA-256 no manifesto, incluindo os metadados de repositórios e exclusões. O arquivo completo não é um arquivo byte a byte idêntico à origem: é uma seleção de células verificadas contra as impressões digitais das linhas originais.
 
-## Adaptador do classificador
+No corpus atual são **29 colunas originais + 14 metadados = 43 colunas**. A refatoração não remove nem altera campos desse arquivo. Colunas originais adicionadas a outros corpora também permanecem no arquivo completo.
 
-`pipeline_columns` descreve **destino → origem**. Uma origem comum é um cabeçalho original. Existem três fontes derivadas: `@repository` (nome completo), `@number` (número inteiro técnico), `@artifact_type` (tipo original). Não há preenchimento automático de campos ausentes. O adaptador conserva os campos extras e os metadados de amostragem; aliases podem substituir nomes apenas no arquivo do pipeline. O arquivo completo conserva os valores anteriores, permitindo reverter essa adaptação.
+## Arquivo do classificador: exatamente 13 colunas
 
-O contrato padrão exige repository, issue_number, issue_title, issue_body e concatenated_comments. O código de leitura do pipeline vizinho também aceita campos adicionais. Essa leitura foi inspecionada sem criar importações ou dependências entre repositórios; nenhuma classificação real foi executada.
+`final_sample_pipeline.csv` é uma projeção explícita do completo, com a seguinte ordem fixa:
 
-`pipeline_key_fields` declara a chave exigida pelo classificador. O padrão é repository + issue_number, observado no pipeline local. Um contrato diferente exige `pipeline_decision`, e sua implementação no classificador cabe ao projeto correspondente. Não se ajusta o sorteio nem se descarta uma observação incompatível: a execução fica bloqueada e o contrato precisa ser resolvido.
+| Coluna | Origem na configuração do corpus real |
+|---|---|
+| sampling_unit_id | Chave da ocorrência, copiada do completo automaticamente |
+| repository | sampling_repository: nome completo técnico owner/name |
+| issue_number | issue_number original, sem normalização numérica |
+| artifact_type | type original, sem normalização dos tokens |
+| repository_category | repository_category da própria linha original |
+| created_at | created_at original |
+| closed_at | closed_at original |
+| state | state original |
+| comments_count | comments_count original, sem recontagem |
+| commits_count | Célula configurada de issues_prs.csv, normalizada para inteiro não negativo ou vazio; original preservado no completo |
+| issue_title | issue_title integral |
+| issue_body | issue_body integral |
+| concatenated_comments | concatenated_comments integral |
+
+Não entram outras colunas originais nem metadados estatísticos. Categoria ausente continua vazia, inclusive em Community; não se substitui a categoria bruta por `sampling_category`, por um estrato ou por uma categoria inventada. Datas, `comments_count` e números de identificação permanecem strings originais: `issue_number=0007.0` continua `0007.0`. Somente `commits_count` recebe a normalização descrita abaixo. Aspas, espaços, Unicode e quebras de linha internas dos textos são preservados. Células vazias continuam vazias; o leitor preserva strings como `NA`, `null` e `NaN`. A exportação trata os marcadores de ausência explicitamente somente em `commits_count`.
+
+`pipeline_columns` descreve **destino → origem** para os 12 campos além do ID automático. Uma origem comum é um cabeçalho original. Os aliases explícitos são `@repository` (nome completo), `@number` (célula original mapeada em `schemas.issues.number`) e `@artifact_type` (célula original mapeada em `schemas.issues.artifact_type`). Essa projeção aceita nomes de entrada configuráveis e rejeita destinos extras ou ausentes; a ordem do dicionário não altera a ordem fixa do CSV. Não há preenchimento automático de colunas ausentes. Campos extras futuros nunca vazam para a entrada do classificador.
+
+`pipeline_key_fields` deve ser exatamente `["sampling_unit_id"]`; o campo `pipeline_decision` registra a justificativa do contrato. A unicidade de repository/número não é exigida e não interfere no sorteio. O [guia de integração](integracao_classificador.md) documenta a adaptação pendente no projeto externo.
+
+## Normalização exclusiva de commits_count
+
+**`commits_count` deve ser exportado como inteiro não negativo quando válido e como célula vazia quando ausente ou inválido.** A função reutilizável `normalization.normalize_commits_count` é aplicada em `export.pipeline_row`, compartilhada pelas exportações definitiva e smoke. A projeção bruta `project_pipeline_row` continua sendo usada pela seleção do smoke para manter seus critérios.
+
+| Original | Pipeline | Auditoria |
+|---|---|---|
+| `0`, `0.0`, `"0.0"` | `0` | válido; zero preservado |
+| `5`, `5.0`, `"0005.00"` | `5` | válido; representação inteira |
+| `None`, NaN, `""`, espaços, `"null"` | vazio | ausente |
+| `"abc"`, `-1`, `2.5`, ±Infinity | vazio | inválido; ocorrência registrada |
+
+Zero é válido e nunca deve ser convertido em vazio. Frações não são arredondadas nem truncadas. A validação usa `Decimal`, aceita notação científica quando o valor é integral, e evita conversões intermediárias para float. Inteiros grandes e strings decimais conservam precisão. Strings são aparadas para interpretar somente esse campo; os marcadores `null` e NaN ignoram caixa. Booleanos, coleções e números complexos são inválidos. Outras colunas, inclusive `comments_count`, mantêm seus contratos.
+
+`export_audit.commits_count` aparece no manifesto e no relatório JSON de validação, com resumo no relatório Markdown. `integers_preserved` conta representações inteiras; `decimal_representations_converted` conta representações com ponto/expoente. Sua soma é `valid`. `valid + missing + invalid = total`. `zeros_preserved` é um subconjunto dos válidos, não uma categoria adicional. `invalid_records` registra cada `sampling_unit_id`, `original_value` e `reason`, sem agrupar identidades lógicas repetidas. O completo mantém todas as células originais e permite recuperar cada representação. A auditoria de exportação é separada da auditoria da população e dos metadados estatísticos.
+
+## Arquivo estatístico: exatamente 14 colunas
+
+`final_sample_metadata.csv` contém exatamente as 14 colunas da tabela de metadados acima, na mesma ordem, começando por `sampling_unit_id` e terminando em `sampling_run_id`. Cada célula é copiada do arquivo completo; pesos não são recalculados na exportação. Não contém títulos, corpos ou comentários.
+
+Há uma linha por ocorrência sorteada. `sampling_logical_id` pode se repetir, inclusive entre provider e community. Ele serve para rastreabilidade e não substitui a chave primária `sampling_unit_id`. O classificador não precisa receber esse arquivo; a análise posterior associa seus resultados aos estratos e pesos por `sampling_unit_id`.
+
+## Contrato entre os três arquivos
+
+Os três CSVs possuem contagens iguais e conjuntos idênticos de `sampling_unit_id`, sem chave vazia ou duplicada. As linhas são exportadas na ordem dos IDs, mas uma junção deve usar a chave, nunca a posição física. As validações exigem correspondência exata do pipeline e dos metadados com o completo, usando os aliases configurados e, exclusivamente para `commits_count`, o resultado da função de normalização. Também verificam a seleção e as impressões digitais das células originais.
+
+O manifesto registra `export_contract.version: "4"`, a chave de ocorrência, as duas listas ordenadas de colunas e a regra de normalização. A versão 4 mantém as mesmas 13/14 colunas da versão 3 e altera somente a representação de `commits_count` no pipeline. Inclui checksums dos três CSVs. O contrato é independente da versão do algoritmo estatístico, que permanece inalterada. A versão do programa é 1.2.1; execuções históricas devem ser reproduzidas com a implementação registrada, sem migrar ou reescrever seus artefatos.
 
 ## Inspeção e validação
 
-As chaves candidatas de `inspect` são exploratórias e usam valores brutos. As datas são perfiladas sem alterar células nem aplicar filtros de período. A escolha efetiva e as normalizações constam de `config_snapshot.json` e do manifesto. `prepare` registra verificações de balanço, exclusões, fórmulas e pesos sem executar sorteio. `validate` verifica execuções definitivas, repete a escolha e compara os hashes de todas as células originais e os valores de cada metadado, além do adaptador do pipeline e dos relatórios recalculados.
+As chaves candidatas de `inspect` são exploratórias e usam valores brutos. As datas são perfiladas sem alterar células nem aplicar filtros de período. A escolha efetiva e as normalizações constam de `config_snapshot.json` e do manifesto. `prepare` registra verificações de balanço, exclusões, fórmulas e pesos sem executar sorteio nem gerar os três CSVs de amostra. `validate` verifica execuções definitivas, repete a escolha e compara os hashes de todas as células originais, os valores de cada metadado, os cabeçalhos exatos, os conjuntos de IDs e as projeções do pipeline e dos metadados, além dos relatórios recalculados. Falta de correspondência, IDs vazios, perda ou multiplicação de linhas e alterações de conteúdo bloqueiam a validação, mesmo que o checksum de uma saída adulterada tenha sido atualizado.
+
+## Contrato técnico do smoke de integração
+
+`smoke_15_pipeline.csv` reutiliza integralmente as 13 colunas, ordem, aliases e normalização exclusiva de `commits_count` descritos acima. O completo e os metadados usam o mesmo namespace de 14 campos. O identificador do smoke aparece em sampling_run_id. Os três arquivos contêm exatamente 15 ocorrências na mesma ordem, incluindo ambas as unidades do par de identidade lógica repetida. O manifesto tem run_type=integration_smoke e selection_nature=intentional_technical_coverage.
+
+Por se tratar de seleção intencional, sampling_sample_size, sampling_design_weight, sampling_provider_weight e sampling_inclusion_probability são **células vazias** nos dois arquivos que contêm metadados. O vazio representa inaplicabilidade, sem pesos fictícios ou quotas convertidas em probabilidades. sampling_population é o N_h elegível real; sampling_population_weight é sua proporção descritiva N_h/N. Nenhuma dessas informações transforma o conjunto em amostra probabilística. Consulte [smoke_integracao.md](smoke_integracao.md).

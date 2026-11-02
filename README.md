@@ -10,7 +10,7 @@ A referência é **Cálculo da amostra final — Blockchain design patterns em i
 
 O universo decidido pelos pesquisadores é o **original MSR 2026**, com 391.596 linhas: 383.387 provider e 8.209 community. As atualizações do dashboard não integram esse universo. Todas as ocorrências são preservadas na preparação, exceto as exclusões do piloto. A soma amostral prevista de 3.410 é uma referência, nunca uma meta imposta. O DOCX descreve o período 2012–2024, mas o arquivo original contém datas de criação de 2011 a 2025; essa divergência documental foi registrada, sem aplicar filtro temporal.
 
-A preparação foi validada com os três CSVs reais: 200 casos do piloto encontrados e excluídos sem ambiguidades, 391.396 linhas elegíveis e planejamento de **3.408 casos**. As 33 categorias e os nove estratos foram conferidos com o DOCX. A execução passou em 21 verificações técnicas e a suíte possui 168 testes aprovados. **Nenhum registro real foi sorteado.** Veja o [relatório técnico completo](docs/auditoria_corpus_real.md), o [diagnóstico](docs/diagnostico.md) e as [decisões pendentes](docs/decisoes_metodologicas.md).
+A preparação foi validada com os três CSVs reais: 200 casos do piloto encontrados e excluídos sem ambiguidades, 391.396 linhas elegíveis e planejamento de **3.408 casos**. As 33 categorias e os nove estratos foram conferidos com o DOCX. A execução passou em 21 verificações técnicas. A versão 1.2.1 normaliza `commits_count` exclusivamente na exportação ao classificador, mantendo o smoke técnico de 15 ocorrências, as 13 colunas e o método estatístico. **O sorteio definitivo não foi executado.** Veja o [relatório técnico completo](docs/auditoria_corpus_real.md), as [evidências de validação](docs/validacao.md) e as [decisões pendentes](docs/decisoes_metodologicas.md).
 
 ## Instalação
 
@@ -41,7 +41,11 @@ src/web3blockset_sampling/
   exclusions.py             # piloto e smoke opcional
   statistics.py             # Cochran, correção finita, ceil e pesos
   sampling.py               # sorteio independente por estrato
-  export.py                 # segunda passagem e contrato do pipeline
+  contracts.py              # listas exatas de 13 e 14 colunas
+  normalization.py          # commits_count inteiro ou vazio e auditoria da exportação
+  export.py                 # recuperação de ocorrências e projeções compartilhadas
+  smoke_selection.py        # cobertura técnica determinística, sem inferência
+  smoke.py                  # extração técnica, artefatos e revalidação
   validation.py             # invariantes, textos e metadados
   reports.py                # distribuições e relatório metodológico
   workflow.py / cli.py      # histórico de execuções e interface
@@ -50,6 +54,7 @@ configs/sampling.json        # configuração inicial para o esquema observado
 data/raw/                    # issues_prs.csv, repositories.csv e pilot-200.csv
 data/reference/              # aprovação e smoke opcional
 outputs/<run_id>/            # resultados independentes de cada execução
+outputs/smoke_tests/<run_id>/ # smoke técnico isolado do sorteio definitivo
 tests/                      # testes pytest com dados sintéticos
 docs/                       # método, contratos, diagnóstico e arquitetura
 ```
@@ -116,7 +121,7 @@ Se os pesquisadores definirem que a unidade do universo original é a **ocorrên
 
 O suporte genérico a versões alternativas exige outro `corpus_version`, `corpus_decision` e suas próprias `expected_counts`. Essa alternativa **não será utilizada nesta pesquisa**, cuja decisão é manter o corpus original. A aplicação não produz um corpus canonicalizado.
 
-O smoke test não é excluído por padrão. Para excluí-lo, forneça `smoke`, seu esquema se necessário e `smoke_decision`. A sobreposição com o piloto é registrada sem contar a mesma remoção duas vezes.
+A extração técnica descrita abaixo não exclui suas ocorrências de uma seleção futura. A funcionalidade preexistente de exclusão opcional não é ativada pela extração. O smoke test não é excluído por padrão. Para excluí-lo, forneça `smoke`, seu esquema se necessário e `smoke_decision`. A sobreposição com o piloto é registrada sem contar a mesma remoção duas vezes.
 
 ### Aprovação humana do agrupamento
 
@@ -128,6 +133,23 @@ python -m web3blockset_sampling approve-mapping --mapping configs/strata.json \
 ```
 
 O comando não avalia o mérito metodológico: registra a declaração de aprovação, o responsável, a data UTC e o SHA-256 do arquivo. Informe `"approval": "../data/reference/mapping_approval.json"` na configuração ou use `--approval`. Qualquer alteração de bytes no mapeamento invalida essa aprovação. Arquivos de aprovação existentes não são sobrescritos. Não há aprovação real incluída neste projeto; as aprovações dos testes são exclusivamente sintéticas.
+
+## Smoke test de integração com 15 ocorrências
+
+```bash
+PYTHONPATH=src python3 -m web3blockset_sampling smoke \
+  --config configs/sampling.json --size 15 --seed 20261102 \
+  --run-id smoke_15_commits_normalized_v2 --authorize-technical-smoke
+
+PYTHONPATH=src python3 -m web3blockset_sampling validate \
+  --run-dir outputs/smoke_tests/smoke_15_commits_normalized_v2
+```
+
+A seleção intencional inclui os nove estratos, Issues e PRs e um par real provider/community com a mesma identidade lógica e IDs de ocorrência distintos. As execuções reais smoke_15_integration_v1 e smoke_15_integration_v1_replay geraram os mesmos 15 IDs e o mesmo pipeline. No corpus elegível não há commits_count vazio; essa limitação está registrada, sem fabricar valores. Amplia a cobertura de commits, textos, estados e indícios lexicais sem classificar registros. A autorização explícita vale somente para a extração técnica: preserva os bloqueios metodológicos do sorteio definitivo e não concede aprovação humana.
+
+A regeneração `smoke_15_commits_normalized_v2` preservou os mesmos 15 IDs e sua ordem: 15 representações decimais convertidas, cinco zeros preservados e nenhum ausente ou inválido. Os completos mantêm os valores originais; os diretórios anteriores foram preservados. Para outra execução, use um novo `--run-id` ou omita o argumento. As [evidências de normalização](docs/validacao.md) registram os testes, a comparação e os hashes.
+
+O classificador recebe **smoke_15_pipeline.csv**, com exatamente 13 colunas e 15 linhas de dados. Completo, metadados, manifesto e relatório ficam juntos em um diretório exclusivo. Os campos estatísticos inaplicáveis permanecem vazios; esse conjunto não admite inferências populacionais. As 15 ocorrências continuam elegíveis para a seleção definitiva. Veja o [guia do smoke test](docs/smoke_integracao.md) para critérios, reprodução, limitações e significado dos campos. A validação efetiva de Stage 1 e Stage 2 ocorrerá no classificador independente.
 
 ## Sorteio definitivo
 
@@ -156,9 +178,10 @@ Cada execução cria um diretório novo, sem sobrescrever entradas ou resultados
 
 | Arquivo | Uso |
 |---|---|
-| final_sample_full.csv | Referência principal: todas as colunas originais e metadados sampling_* |
-| final_sample_pipeline.csv | Entrada do classificador: aliases configurados, textos integrais e os mesmos metadados |
-| sampling_manifest.json | Status, hashes, ambiente, código, corpus, decisões, semente e alocação |
+| final_sample_full.csv | Referência principal: todas as colunas originais + 14 metadados; 43 colunas no corpus atual |
+| final_sample_pipeline.csv | Entrada do classificador: exatamente 13 colunas, com textos integrais e chave da ocorrência |
+| final_sample_metadata.csv | Exatamente 14 metadados, incluindo pesos, proveniência e chave da ocorrência; sem textos |
+| sampling_manifest.json | Status, hashes dos três CSVs, contrato de exportação, ambiente, código, corpus, decisões, semente e alocação |
 | config_snapshot.json | Configuração efetiva com caminhos resolvidos |
 | strata_summary.csv | População antes/depois, exclusões, nₕ, pesos, fração e repositórios distintos |
 | repository_distribution.csv | Distribuição completa por repositório, na população e na amostra |
@@ -167,11 +190,27 @@ Cada execução cria um diretório novo, sem sobrescrever entradas ou resultados
 | validation_report.json | Diagnósticos, distribuições, exclusões e verificações |
 | sampling_report.md | Relatório legível, com valores efetivamente calculados e limitações |
 
-**Forneça `final_sample_pipeline.csv` ao pipeline de classificação.** O perfil padrão fornece `repository`, `issue_number`, `issue_title`, `issue_body`, `concatenated_comments` e `type`. `repository` passa a ser o nome completo e `issue_number` recebe sua representação técnica inteira; os demais campos são mantidos. Os nomes e fontes dos aliases são explícitos em `pipeline_columns` e reversíveis a partir do arquivo completo e da configuração.
+**Forneça somente `final_sample_pipeline.csv` ao classificador.** O cabeçalho segue esta ordem fixa:
 
-Os metadados incluem `sampling_unit_id`, `sampling_logical_id`, `sampling_source`, `sampling_category`, `sampling_original_category`, `sampling_stratum`, `sampling_population`, `sampling_sample_size`, `sampling_population_weight`, `sampling_design_weight`, `sampling_provider_weight`, `sampling_inclusion_probability` e `sampling_run_id`. Preserve-os ao combinar os resultados classificados; utilize `sampling_unit_id` como chave de retorno.
+```text
+sampling_unit_id,repository,issue_number,artifact_type,repository_category,created_at,closed_at,state,comments_count,commits_count,issue_title,issue_body,concatenated_comments
+```
 
-O pipeline vizinho inspecionado exige unicidade de `(repository, issue_number)`. Uma amostra com colisão nessa chave bloqueia a exportação definitiva; **não se refaz o sorteio para eliminar a colisão**. Um classificador adaptado pode declarar outro `pipeline_key_fields`, como `["sampling_unit_id"]`, mediante `pipeline_decision`. A aplicação não altera o classificador. A compatibilidade definitiva depende de confirmar qual projeto e versão serão utilizados.
+`repository` usa o nome completo correto; `issue_number` mantém sua representação original, e `artifact_type` copia o valor original de `type`. Categoria, datas, estado, `comments_count` e textos são copiados integralmente, incluindo campos vazios. A projeção usa uma lista explícita de campos permitidos: novas colunas do corpus permanecem no arquivo completo e não entram automaticamente no pipeline.
+
+**`commits_count` deve ser exportado como inteiro não negativo quando válido e como célula vazia quando ausente ou inválido.** Essa regra se aplica a `final_sample_pipeline.csv` e `smoke_15_pipeline.csv`: `0` e `0.0` → `0`; `5.0` → `5`. Zero é válido e nunca vira vazio. Frações como `2.5` não são arredondadas; negativos, infinitos e conteúdos não numéricos viram vazio. `None`, NaN, strings vazias, espaços e `null` são ausentes. A validação usa Decimal sem passar strings/inteiros por float, preservando números grandes. Nenhum campo é estimado pela quantidade de comentários.
+
+Os arquivos completos conservam a representação original de `commits_count`. Manifestos e relatórios existentes registram `export_audit.commits_count`: válidos, inteiros preservados, representações decimais convertidas, zeros preservados, ausentes, inválidos e IDs/valores/motivos dos inválidos. Zeros são um subconjunto dos válidos. O contrato de exportação passa à versão 4, sem mudar cabeçalhos ou regras estatísticas. A validação compara `commits_count` do pipeline ao resultado da normalização do completo e recalcula a auditoria; as demais células continuam exigindo correspondência exata.
+
+**O classificador não precisa receber os metadados estatísticos.** Eles são copiados do arquivo completo para `final_sample_metadata.csv`, sem recalcular pesos, nesta ordem:
+
+```text
+sampling_unit_id,sampling_logical_id,sampling_repository,sampling_source,sampling_category,sampling_original_category,sampling_stratum,sampling_population,sampling_sample_size,sampling_population_weight,sampling_design_weight,sampling_provider_weight,sampling_inclusion_probability,sampling_run_id
+```
+
+Os três arquivos possuem uma linha por ocorrência selecionada, os mesmos IDs únicos e não vazios e a mesma quantidade de linhas. A junção dos resultados classificados com os metadados utiliza **exclusivamente `sampling_unit_id`**. Repository/número e identidade lógica podem se repetir; nenhuma ocorrência é consolidada ou sorteada novamente para evitar colisões.
+
+O classificador externo inspecionado ainda usa repository/número como identidade e lê `type`. Sua integração real permanece pendente: deverá aceitar `artifact_type` e preservar `sampling_unit_id` em Stage 1, Stage 2, checkpoints, retomadas e resultados finais. Esse repositório externo não foi alterado. Os [contratos completos](docs/esquemas.md) e o [guia de integração com exemplo de junção](docs/integracao_classificador.md) detalham a adaptação necessária, sem mudar regras de classificação.
 
 Proporções globais devem usar **Σ Wₕ p̂ₕ**, e comparações internas de provider devem usar `sampling_provider_weight`. Contagens brutas da amostra não representam proporções do corpus. `Wₕ` e `Nₕ/nₕ` são pesos diferentes.
 
@@ -183,7 +222,7 @@ python -m web3blockset_sampling sample \
   --config outputs/IDENTIFICADOR_DA_EXECUCAO/config_snapshot.json
 ```
 
-`validate` exige status `complete`, verifica hashes das entradas e saídas, recria a população e as exclusões, recalcula alocações e pesos, repete o sorteio e compara cada campo original exportado com sua impressão digital. Também reconstrói os relatórios para detectar inconsistências. Não modifica a execução validada. Uma nova execução terá outro ID e data, mas os mesmos IDs selecionados quando arquivos, configuração, código e ambiente forem iguais.
+`validate` exige status `complete`, verifica hashes das entradas e saídas, recria a população e as exclusões, recalcula alocações e pesos, repete o sorteio e compara cada campo original exportado com sua impressão digital. Exige os três CSVs, os cabeçalhos exatos e a correspondência de todas as chaves e células, detectando perdas, multiplicações, textos alterados e metadados divergentes. Também reconstrói os relatórios para detectar inconsistências. Não modifica a execução validada. Uma nova execução terá outro ID e data, mas os mesmos IDs selecionados quando arquivos, configuração, código e ambiente forem iguais.
 
 Guarde os arquivos originais, os relatórios, o código de mesma versão/impressão digital e a mesma versão major.minor do Python. O PRNG utilizado pertence à biblioteca padrão; mudanças de implementação exigem uma nova versão do algoritmo e validação específica. Hashes detectam alterações, mas não fornecem assinatura digital ou prova da proveniência científica do corpus.
 
@@ -195,7 +234,7 @@ Considere definitiva apenas uma execução cujo `sampling_manifest.json` tenha `
 python -m pytest -q
 ```
 
-A suíte usa universos sintéticos e cobre as 33 categorias, nove estratos, junções, origens conflitantes, identificadores, exclusões, duplicidades, Cochran, arredondamento, pesos, determinismo, ordem física, conteúdo textual, CLI, histórico, aprovação e validação independente de adulterações. Inclui um fluxo completo de preparação → exclusão → alocação → sorteio → exportação → validação.
+A suíte usa universos sintéticos e cobre as 33 categorias, nove estratos, junções, origens conflitantes, identificadores, exclusões, duplicidades, Cochran, arredondamento, pesos, determinismo, ordem física, conteúdo textual, CLI, histórico, aprovação e validação independente de adulterações. Inclui um fluxo completo de preparação → exclusão → alocação → sorteio → três exportações → validação, além de junção simulada com resultados de classificação por ocorrência. Consulte o [resultado atual dos testes](docs/validacao.md).
 
 ## Limitações metodológicas
 

@@ -9,7 +9,7 @@ Os arquivos indicados pelo pesquisador estão no repositório: `data/raw/issues_
 - Todas as linhas foram resolvidas, sem falhas de relacionamento ou estratificação.
 - Piloto: 200 chaves encontradas, nenhuma ausente ou ambígua, 200 linhas removidas antes do cálculo (195 provider e 5 community).
 - População elegível: 391.396 ocorrências; planejamento amostral: 3.408 casos.
-- Foram aprovadas 21 verificações técnicas e 168 testes. Nenhuma ocorrência repetida foi removida e nenhum registro real foi sorteado.
+- Na auditoria 1.0.0 foram aprovadas 21 verificações técnicas e 168 testes. A refatoração de exportação 1.1.0 passou em 204 testes; o ajuste de commits_count na versão 1.1.1 passou em 209, conforme as [evidências atuais](validacao.md). Nenhuma ocorrência repetida foi removida e nenhum registro real foi sorteado.
 - Os arquivos originais permanecem com os hashes registrados. O [relatório técnico completo](auditoria_corpus_real.md) apresenta distribuições, pesos e pendências.
 
 A descrição temporal do DOCX (2012–2024) difere das datas de criação observadas (2011–2025). A divergência foi documentada e não se aplicou um filtro temporal. Há 105 categorias provider com espaço final e 540 registros community com categoria bruta preenchida; essas representações são preservadas nas colunas originais, e community permanece no nono estrato.
@@ -66,7 +66,7 @@ Há também `pipeline-llm-verification/data/pilot_pipeline_input_200.csv`, com a
 
 ## Pipeline observado
 
-Foi examinada a leitura em `llm_verify_pipeline/llm_pipeline/data.py` e suas colunas obrigatórias em config.py. Esse leitor requer repository, issue_number, issue_title e issue_body, aceita concatenated_comments e demais campos e rejeita colisões de repository + issue_number. O perfil exportado inclui os cinco campos solicitados e conserva todos os metadados de amostragem. Nenhum módulo do pipeline foi importado pela aplicação ou executado.
+Na inspeção inicial foi examinada a leitura em `llm_verify_pipeline/llm_pipeline/data.py` e suas colunas obrigatórias em config.py. Esse leitor requer repository, issue_number, issue_title e issue_body, aceita concatenated_comments e demais campos e rejeita colisões de repository + issue_number. Naquela versão, o perfil exportado conservava todos os metadados de amostragem. O contrato atual separa o pipeline de 13 campos e os 14 metadados, com chave exclusiva sampling_unit_id; a adaptação externa necessária está em [integracao_classificador.md](integracao_classificador.md). Nenhum módulo do classificador foi importado pela aplicação ou executado.
 
 ## Evidência e reprodução da inspeção
 

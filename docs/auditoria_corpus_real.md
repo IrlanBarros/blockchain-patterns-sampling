@@ -2,6 +2,8 @@
 
 Data: 2 de novembro de 2026. Pesquisa: **An Empirical Study of the Adoption and Challenges of Blockchain Design Patterns in OSS Projects**.
 
+Este relatório registra a auditoria histórica da versão **1.0.0**, cujos artefatos e checksums permanecem intactos. A refatoração posterior da versão 1.1.0 separa as exportações em completo, pipeline de 12 campos e metadados de 14 campos, com chave obrigatória `sampling_unit_id`; a revisão 1.1.1 acrescenta `commits_count`, totalizando 13 campos no pipeline. Essas alterações não repetem o sorteio real nem alteram estes resultados. O contrato atual e a adaptação externa pendente constam de [esquemas](esquemas.md), [integração do classificador](integracao_classificador.md) e [evidências da refatoração](validacao.md).
+
 **Resultado:** a preparação e os cálculos estão tecnicamente validados com os arquivos reais. Foram preservadas as 391.596 ocorrências originais, removidos somente os 200 casos autorizados do piloto e calculado um planejamento de 3.408 casos sobre 391.396 linhas elegíveis. Nenhum registro real foi sorteado ou exportado como amostra.
 
 O universo original foi decidido pelo pesquisador. A auditoria não utilizou o corpus canonicalizado de 391.421 e não reabriu essa escolha. O status blocked e o código de saída 2 refletem os bloqueios metodológicos ainda ativos, não uma falha de processamento.
